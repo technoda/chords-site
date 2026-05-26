@@ -10,7 +10,7 @@
         #main { flex-grow: 1; padding: 20px; overflow-y: auto; display: flex; flex-direction: column; }
         .song-btn { display: block; width: 100%; padding: 10px; margin-bottom: 5px; cursor: pointer; background: #34495e; color: white; border: none; text-align: right; }
         .song-btn:hover { background: #1abc9c; }
-        #editor { background: white; padding: 40px; min-height: 500px; outline: none; border: 1px solid #ccc; font-size: 18px; line-height: 2; }
+        #editor { background: white; padding: 40px; min-height: 500px; outline: none; border: 1px solid #ccc; font-size: 18px; line-height: 2; transition: font-size 0.2s; }
         .word-box { display: inline-block; text-align: center; margin: 0 3px; cursor: pointer; }
         .chord { display: block; color: blue; font-weight: bold; font-family: monospace; line-height: 1; }
         .lyric { display: block; color: red; font-weight: bold; line-height: 1; }
@@ -32,7 +32,10 @@
         <input type="text" id="songTitle" placeholder="שם השיר">
         <button onclick="addChord()">➕ אקורד</button>
         <button onclick="document.execCommand('undo')">↩️ Undo</button>
-        <button onclick="exportToExcel()" style="background:darkgreen; color:white;">📊 ייצא לטבלת Excel</button>
+        <button onclick="generateLink()" style="background:skyblue;">🔗 קישור לשיתוף</button>
+        <label>גודל:</label>
+        <input type="range" min="14" max="40" value="18" oninput="changeFontSize(this.value)">
+        <button onclick="exportToExcel()" style="background:darkgreen; color:white;">📊 ייצא לאקסל</button>
         <button onclick="saveCurrentSong()" style="background:green; color:white;">שמור שיר</button>
     </div>
     <div id="editor" contenteditable="true" ondblclick="handleDblClick(event)"></div>
@@ -42,140 +45,106 @@
     let songs = JSON.parse(localStorage.getItem('mySongs') || '[]');
     let currentIdx = -1;
 
-    // --- הפונקציה החדשה והמדויקת לייצוא לאקסל ---
+    // טעינה מקישור שיתוף
+    window.onload = () => {
+        const urlParams = new URLSearchParams(window.location.search);
+        if (urlParams.has('data')) {
+            try {
+                const data = JSON.parse(decodeURIComponent(escape(atob(urlParams.get('data')))));
+                document.getElementById('songTitle').value = data.title;
+                document.getElementById('editor').innerHTML = data.content;
+            } catch(e) { console.error("Error loading shared song", e); }
+        }
+        renderList();
+    };
+
+    function changeFontSize(size) {
+        const editor = document.getElementById('editor');
+        editor.style.fontSize = size + "px";
+        editor.querySelectorAll('*').forEach(el => el.style.fontSize = size + "px");
+    }
+
+    function generateLink() {
+        const data = { title: document.getElementById('songTitle').value, content: document.getElementById('editor').innerHTML };
+        const encoded = btoa(unescape(encodeURIComponent(JSON.stringify(data))));
+        prompt("העתק את הקישור לשיתוף:", window.location.origin + window.location.pathname + '?data=' + encoded);
+    }
+
+    // הלוגיקה החדשה והמתוקנת של ייצוא לאקסל
     function exportToExcel() {
         const editor = document.getElementById('editor');
         const rows = [];
-        
-        // עוברים על כל השורות בעורך
-        editor.childNodes.forEach(node => {
-            if (node.nodeType === 3 && node.textContent.trim() === '') return;
-            
-            let chordRow = [];
-            let lyricRow = [];
-            let hasChords = false;
-            let isEmpty = true;
+        let chordRow = [];
+        let lyricRow = [];
+        let hasChords = false;
+        let currentPlainText = "";
 
-            const processText = (text) => {
-                const parts = text.split(' ');
-                parts.forEach(part => {
-                    if (part.trim() !== '') {
-                        chordRow.push(''); // תא ריק לאקורד
-                        lyricRow.push(part); // המילה עצמה
-                        isEmpty = false;
-                    }
-                });
-            };
-
-            // אם זו שורת DIV או P
-            if (node.nodeName === 'DIV' || node.nodeName === 'P') {
-                node.childNodes.forEach(child => {
-                    if (child.nodeType === 3) { // טקסט רגיל
-                        processText(child.textContent);
-                    } else if (child.classList && child.classList.contains('word-box')) { // הברה עם אקורד
-                        const chord = child.querySelector('.chord').innerText.trim();
-                        const lyric = child.querySelector('.lyric').innerText.trim();
-                        chordRow.push(chord);
-                        lyricRow.push(lyric);
-                        if (chord !== '') hasChords = true;
-                        isEmpty = false;
-                    } else if (child.nodeName === 'BR') {
-                        // ירידת שורה
-                    } else {
-                        processText(child.innerText || child.textContent);
-                    }
-                });
-            } else if (node.nodeType === 3) {
-                processText(node.textContent);
+        const flushText = () => {
+            if (currentPlainText !== "") {
+                chordRow.push(""); 
+                lyricRow.push(currentPlainText);
+                currentPlainText = "";
             }
+        };
 
-            if (!isEmpty) {
+        const flushLine = () => {
+            flushText();
+            if (lyricRow.length > 0 || chordRow.length > 0) {
                 if (hasChords) {
-                    rows.push(chordRow); // מוסיפים את שורת האקורדים
+                    rows.push(chordRow);
                 }
-                rows.push(lyricRow); // מוסיפים את שורת המילים מתחתיה
+                rows.push(lyricRow);
+            } else {
+                rows.push([]); 
             }
-        });
+            chordRow = [];
+            lyricRow = [];
+            hasChords = false;
+        };
 
-        // יצירת קובץ אקסל והגדרתו לימין-לשמאל (RTL)
-        const ws = XLSX.utils.aoa_to_sheet(rows);
-        ws['!views'] = [{rightToLeft: true}]; // מגדיר את האקסל שייפתח מימין לשמאל
+        const parseNode = (n) => {
+            if (n.nodeType === 3) { 
+                const text = n.textContent.replace(/\n/g, ''); 
+                if (text) currentPlainText += text;
+            } else if (n.nodeName === 'BR') {
+                flushLine(); 
+            } else if (n.classList && n.classList.contains('word-box')) { 
+                flushText();
+                const chord = n.querySelector('.chord').innerText;
+                const lyric = n.querySelector('.lyric').innerText;
+                chordRow.push(chord); 
+                lyricRow.push(lyric); 
+                if (chord.trim() !== '') hasChords = true;
+            } else if (n.nodeName === 'DIV' || n.nodeName === 'P') {
+                if (currentPlainText !== "" || lyricRow.length > 0) {
+                    flushLine();
+                }
+                n.childNodes.forEach(parseNode);
+                flushLine();
+            } else {
+                n.childNodes.forEach(parseNode);
+            }
+        };
+
+        editor.childNodes.forEach(parseNode);
+        if (currentPlainText !== "" || lyricRow.length > 0) {
+            flushLine();
+        }
+
+        const finalRows = [];
+        for (let i = 0; i < rows.length; i++) {
+            if (rows[i].length === 0 && i > 0 && rows[i-1].length === 0) continue;
+            finalRows.push(rows[i]);
+        }
+
+        const ws = XLSX.utils.aoa_to_sheet(finalRows);
+        ws['!views'] = [{rightToLeft: true}]; 
 
         const wb = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(wb, ws, "שיר");
         XLSX.writeFile(wb, (document.getElementById('songTitle').value || 'song') + ".xlsx");
     }
 
-    // --- שאר הפונקציות שהיו (עריכה, שמירה, טעינה) ---
     function handleDblClick(e) {
         if (e.target.classList.contains('chord')) {
-            const newChord = prompt("ערוך אקורד:", e.target.innerText);
-            if (newChord) e.target.innerText = newChord;
-        }
-    }
-
-    function createNewSong() {
-        const title = prompt("שם השיר:");
-        if (!title) return;
-        songs.push({ title, content: '<div>התחל להקליד...</div>' });
-        saveAll();
-        renderList();
-    }
-
-    function saveCurrentSong() {
-        if (currentIdx === -1) return alert("בחר שיר");
-        songs[currentIdx].title = document.getElementById('songTitle').value;
-        songs[currentIdx].content = document.getElementById('editor').innerHTML;
-        saveAll();
-        renderList();
-    }
-
-    function saveAll() { localStorage.setItem('mySongs', JSON.stringify(songs)); }
-
-    function exportAllSongs() {
-        const a = document.createElement('a');
-        a.href = URL.createObjectURL(new Blob([localStorage.getItem('mySongs')], {type: 'application/json'}));
-        a.download = 'my-songs.json';
-        a.click();
-    }
-
-    function importAllSongs() {
-        const input = document.createElement('input');
-        input.type = 'file';
-        input.onchange = e => {
-            const reader = new FileReader();
-            reader.onload = r => { localStorage.setItem('mySongs', r.target.result); location.reload(); }
-            reader.readAsText(e.target.files[0]);
-        }
-        input.click();
-    }
-
-    function renderList() {
-        const list = document.getElementById('songList');
-        list.innerHTML = '';
-        songs.forEach((s, i) => {
-            const btn = document.createElement('button');
-            btn.className = 'song-btn';
-            btn.innerText = s.title;
-            btn.onclick = () => {
-                currentIdx = i;
-                document.getElementById('songTitle').value = s.title;
-                document.getElementById('editor').innerHTML = s.content;
-            };
-            list.appendChild(btn);
-        });
-    }
-
-    function addChord() {
-        const sel = window.getSelection();
-        if (sel.isCollapsed) return alert("סמן הברה!");
-        const chord = prompt("אקורד:");
-        if (!chord) return;
-        const html = `<span class="word-box" contenteditable="false"><span class="chord">${chord}</span><span class="lyric">${sel.toString()}</span></span>`;
-        document.execCommand('insertHTML', false, html);
-    }
-
-    renderList();
-</script>
-</body>
-</html>
+            const newChord = prompt("ערו
