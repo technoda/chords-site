@@ -2,155 +2,55 @@
 <html dir="rtl" lang="he">
 <head>
     <meta charset="UTF-8">
-    <title>עורך אקורדים מלא</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <title>עורך שירים</title>
     <style>
-        body { font-family: sans-serif; display: flex; height: 100vh; margin: 0; background: #ecf0f1; }
-        #sidebar { width: 250px; background: #2c3e50; color: white; padding: 20px; overflow-y: auto; }
-        #main { flex-grow: 1; padding: 20px; overflow-y: auto; display: flex; flex-direction: column; }
-        .song-btn { display: block; width: 100%; padding: 10px; margin-bottom: 5px; cursor: pointer; background: #34495e; color: white; border: none; text-align: right; }
-        .song-btn:hover { background: #1abc9c; }
-        #editor { background: white; padding: 40px; min-height: 500px; outline: none; border: 1px solid #ccc; transition: font-size 0.2s; }
-        .two-columns { column-count: 2; column-gap: 40px; }
-        .word-box { display: inline-block; text-align: center; margin: 0 3px; cursor: pointer; }
-        .chord { display: block; color: blue; font-weight: bold; font-family: monospace; }
-        .lyric { display: block; color: red; font-weight: bold; }
-        .toolbar { margin-bottom: 20px; background: #fff; padding: 10px; border-radius: 5px; display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+        body { font-family: sans-serif; padding: 20px; background-color: #f4f4f4; }
+        .toolbar { margin-bottom: 15px; padding: 10px; background: white; border-radius: 5px; }
+        .editor { 
+            width: 100%; max-width: 800px; margin: auto; border: 1px solid #ccc; 
+            padding: 30px; min-height: 500px; background: white; 
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        }
+        /* מחלקה לפיצול ל-2 טורים */
+        .columns { column-count: 2; column-gap: 40px; }
+        
+        .word { display: inline-block; text-align: center; margin: 0 5px; line-height: 1.5; }
+        .chord { color: blue; font-weight: bold; display: block; font-family: monospace; font-size: 16px; }
+        .lyric { color: black; font-weight: bold; display: block; font-size: 18px; }
+        
+        button { padding: 8px 15px; cursor: pointer; background: #3498db; color: white; border: none; border-radius: 4px; }
+        button:hover { background: #2980b9; }
     </style>
 </head>
 <body>
 
-<div id="sidebar">
-    <h3>הסט-ליסט שלי</h3>
-    <button onclick="createNewSong()">+ שיר חדש</button>
-    <button onclick="exportAllSongs()" style="margin-top:10px; background:#27ae60; border:none; color:white; padding:5px; cursor:pointer;">💾 שמור סט-ליסט לקובץ</button>
-    <button onclick="importAllSongs()" style="margin-top:5px; background:#c0392b; border:none; color:white; padding:5px; cursor:pointer;">📂 טען סט-ליסט מקובץ</button>
-    <div id="songList" style="margin-top:20px;"></div>
-</div>
-
-<div id="main">
     <div class="toolbar">
-        <input type="text" id="songTitle" placeholder="שם השיר">
-        <button onclick="addChord()">➕ אקורד</button>
-        <button onclick="document.execCommand('undo')">↩️ Undo</button>
-        <button onclick="generateLink()" style="background:skyblue;">🔗 קישור לשיתוף</button>
-        <label>גודל:</label>
-        <input type="range" min="14" max="40" value="18" oninput="changeFontSize(this.value)">
-        <button onclick="saveCurrentSong()" style="background:green; color:white;">שמור שיר</button>
-        <button onclick="exportToImage(true)">📸 ייצא ל-2 טורים</button>
+        <button onclick="addChord()">➕ הוסף אקורד</button>
+        <button onclick="toggleColumns()" style="background:#27ae60;">📰 הכן לדוקס (טורים)</button>
+        <span> &nbsp; &nbsp; הוראה: סמן מילה, לחץ על אקורד, ואז העתק-הדבק לדוקס.</span>
     </div>
-    <div id="editor" contenteditable="true" ondblclick="handleDblClick(event)"></div>
-</div>
 
-<script>
-    let songs = JSON.parse(localStorage.getItem('mySongs') || '[]');
-    let currentIdx = -1;
+    <div id="editor" class="editor" contenteditable="true">
+        <div>התחל להקליד כאן את מילות השיר...</div>
+    </div>
 
-    window.onload = () => {
-        const urlParams = new URLSearchParams(window.location.search);
-        if (urlParams.has('data')) {
-            const data = JSON.parse(atob(unescape(encodeURIComponent(atob(urlParams.get('data')))))); // תיקון פענוח
-            document.getElementById('songTitle').value = data.title;
-            document.getElementById('editor').innerHTML = data.content;
-        }
-        renderList();
-    };
-
-    function changeFontSize(size) {
-        const editor = document.getElementById('editor');
-        editor.style.fontSize = size + "px";
-        editor.querySelectorAll('*').forEach(el => el.style.fontSize = size + "px");
-    }
-
-    function generateLink() {
-        const data = { title: document.getElementById('songTitle').value, content: document.getElementById('editor').innerHTML };
-        const encoded = btoa(unescape(encodeURIComponent(JSON.stringify(data))));
-        prompt("העתק את הקישור לשיתוף:", window.location.origin + window.location.pathname + '?data=' + encoded);
-    }
-
-    function handleDblClick(e) {
-        if (e.target.classList.contains('chord')) {
-            const newChord = prompt("ערוך אקורד:", e.target.innerText);
-            if (newChord) e.target.innerText = newChord;
-        }
-    }
-
-    function createNewSong() {
-        const title = prompt("שם השיר:");
-        if (!title) return;
-        songs.push({ title, content: '<div style="font-size: 18px;">התחל להקליד...</div>' });
-        saveAll();
-        renderList();
-    }
-
-    function saveCurrentSong() {
-        if (currentIdx === -1) return alert("בחר שיר");
-        songs[currentIdx].title = document.getElementById('songTitle').value;
-        songs[currentIdx].content = document.getElementById('editor').innerHTML;
-        saveAll();
-        renderList();
-    }
-
-    function saveAll() { localStorage.setItem('mySongs', JSON.stringify(songs)); }
-
-    function exportAllSongs() {
-        const data = localStorage.getItem('mySongs');
-        const a = document.createElement('a');
-        a.href = URL.createObjectURL(new Blob([data], {type: 'application/json'}));
-        a.download = 'my-songs.json';
-        a.click();
-    }
-
-    function importAllSongs() {
-        const input = document.createElement('input');
-        input.type = 'file';
-        input.onchange = e => {
-            const reader = new FileReader();
-            reader.onload = r => {
-                localStorage.setItem('mySongs', r.target.result);
-                location.reload();
+    <script>
+        function addChord() {
+            const sel = window.getSelection();
+            if (sel.rangeCount === 0 || sel.toString() === "") {
+                alert("סמן את המילה שמעליה תרצה להוסיף אקורד");
+                return;
             }
-            reader.readAsText(e.target.files[0]);
+            const chord = prompt("הכנס אקורד:");
+            if (!chord) return;
+            
+            const html = `<span class="word"><span class="chord">${chord}</span><span class="lyric">${sel.toString()}</span></span>`;
+            document.execCommand('insertHTML', false, html);
         }
-        input.click();
-    }
 
-    function renderList() {
-        const list = document.getElementById('songList');
-        list.innerHTML = '';
-        songs.forEach((s, i) => {
-            const btn = document.createElement('button');
-            btn.className = 'song-btn';
-            btn.innerText = s.title;
-            btn.onclick = () => {
-                currentIdx = i;
-                document.getElementById('songTitle').value = s.title;
-                document.getElementById('editor').innerHTML = s.content;
-            };
-            list.appendChild(btn);
-        });
-    }
-
-    function addChord() {
-        const sel = window.getSelection();
-        if (sel.isCollapsed) return alert("סמן הברה!");
-        const chord = prompt("אקורד:");
-        if (!chord) return;
-        const size = document.getElementById('editor').style.fontSize || '18px';
-        const html = `<span class="word-box" contenteditable="false"><span class="chord" style="font-size:${size}">${chord}</span><span class="lyric" style="font-size:${size}">${sel.toString()}</span></span>`;
-        document.execCommand('insertHTML', false, html);
-    }
-
-    async function exportToImage(twoCols) {
-        const editor = document.getElementById('editor');
-        if(twoCols) editor.classList.add('two-columns');
-        const canvas = await html2canvas(editor);
-        editor.classList.remove('two-columns');
-        const link = document.createElement('a');
-        link.download = (document.getElementById('songTitle').value || 'song') + ".png";
-        link.href = canvas.toDataURL("image/png");
-        link.click();
-    }
-</script>
+        function toggleColumns() {
+            document.getElementById('editor').classList.toggle('columns');
+        }
+    </script>
 </body>
 </html>
