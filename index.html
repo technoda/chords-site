@@ -35,14 +35,13 @@
         <button onclick="generateLink()" style="background:skyblue;">🔗 קישור לשיתוף</button>
         <label>גודל:</label>
         <input type="range" min="14" max="40" value="18" oninput="changeFontSize(this.value)">
-        <button onclick="exportToExcel()" style="background:darkgreen; color:white;">📊 ייצא לאקסל</button>
+        <button onclick="exportToExcel()" style="background:darkgreen; color:white;">📊 ייצא לאקסל צבעוני</button>
         <button onclick="saveCurrentSong()" style="background:green; color:white;">שמור שיר</button>
     </div>
     <div id="editor" contenteditable="true" ondblclick="handleDblClick(event)"></div>
 </div>
 
 <script>
-    // מנגנון חסין לשגיאות בטעינת הזיכרון
     let songs = [];
     try {
         const savedData = localStorage.getItem('mySongs');
@@ -80,6 +79,7 @@
         prompt("העתק את הקישור לשיתוף:", window.location.origin + window.location.pathname + '?data=' + encoded);
     }
 
+    // --- הפונקציה החדשה לצביעת תאים באקסל ---
     function exportToExcel() {
         const editor = document.getElementById('editor');
         const rows = [];
@@ -88,10 +88,23 @@
         let hasChords = false;
         let currentPlainText = "";
 
+        // פונקציה ליצירת תא עם צבע
+        const generateStyledCell = (value, colorHex) => {
+            return {
+                v: value,
+                t: 's', // סוג: טקסט
+                s: {
+                    font: {
+                        color: { rgb: colorHex }
+                    }
+                }
+            };
+        };
+
         const flushText = () => {
             if (currentPlainText !== "") {
                 chordRow.push(""); 
-                lyricRow.push(currentPlainText);
+                lyricRow.push(generateStyledCell(currentPlainText, "000000")); // טקסט רגיל בשחור
                 currentPlainText = "";
             }
         };
@@ -111,6 +124,13 @@
             hasChords = false;
         };
 
+        const processChordLyricPair = (chord, lyric) => {
+            flushText();
+            chordRow.push(generateStyledCell(chord, "0000FF")); // אקורד בכחול
+            lyricRow.push(generateStyledCell(lyric, "FF0000")); // הברה באדום
+            if (chord.trim() !== '') hasChords = true;
+        };
+
         const parseNode = (n) => {
             if (n.nodeType === 3) { 
                 const text = n.textContent.replace(/\n/g, ''); 
@@ -118,12 +138,10 @@
             } else if (n.nodeName === 'BR') {
                 flushLine(); 
             } else if (n.classList && n.classList.contains('word-box')) { 
-                flushText();
-                const chord = n.querySelector('.chord').innerText;
-                const lyric = n.querySelector('.lyric').innerText;
-                chordRow.push(chord); 
-                lyricRow.push(lyric); 
-                if (chord.trim() !== '') hasChords = true;
+                // קוביית אקורד נמצאה
+                const chordNode = n.querySelector('.chord');
+                const lyricNode = n.querySelector('.lyric');
+                processChordLyricPair(chordNode.innerText, lyricNode.innerText);
             } else if (n.nodeName === 'DIV' || n.nodeName === 'P') {
                 if (currentPlainText !== "" || lyricRow.length > 0) {
                     flushLine();
@@ -142,12 +160,12 @@
 
         const finalRows = [];
         for (let i = 0; i < rows.length; i++) {
-            if (rows[i].length === 0 && i > 0 && rows[i-1].length === 0) continue;
+            if (rows[i].length === 0 && i > 0 && rows[i - 1].length === 0) continue;
             finalRows.push(rows[i]);
         }
 
         const ws = XLSX.utils.aoa_to_sheet(finalRows);
-        ws['!views'] = [{rightToLeft: true}]; 
+        ws['!views'] = [{ rightToLeft: true }]; // תצוגה מימין לשמאל
 
         const wb = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(wb, ws, "שיר");
