@@ -42,10 +42,20 @@
 </div>
 
 <script>
-    let songs = JSON.parse(localStorage.getItem('mySongs') || '[]');
+    // מנגנון חסין לשגיאות בטעינת הזיכרון
+    let songs = [];
+    try {
+        const savedData = localStorage.getItem('mySongs');
+        if (savedData && savedData !== 'undefined' && savedData !== 'null') {
+            songs = JSON.parse(savedData);
+        }
+    } catch (e) {
+        console.error("שגיאה בטעינת שירים מהזיכרון", e);
+        songs = [];
+    }
+    
     let currentIdx = -1;
 
-    // טעינה מקישור שיתוף
     window.onload = () => {
         const urlParams = new URLSearchParams(window.location.search);
         if (urlParams.has('data')) {
@@ -70,7 +80,6 @@
         prompt("העתק את הקישור לשיתוף:", window.location.origin + window.location.pathname + '?data=' + encoded);
     }
 
-    // הלוגיקה החדשה והמתוקנת של ייצוא לאקסל
     function exportToExcel() {
         const editor = document.getElementById('editor');
         const rows = [];
@@ -147,4 +156,73 @@
 
     function handleDblClick(e) {
         if (e.target.classList.contains('chord')) {
-            const newChord = prompt("ערו
+            const newChord = prompt("ערוך אקורד:", e.target.innerText);
+            if (newChord) e.target.innerText = newChord;
+        }
+    }
+
+    function createNewSong() {
+        const title = prompt("שם השיר:");
+        if (!title) return;
+        songs.push({ title, content: '<div>התחל להקליד...</div>' });
+        saveAll();
+        renderList();
+    }
+
+    function saveCurrentSong() {
+        if (currentIdx === -1) return alert("בחר שיר");
+        songs[currentIdx].title = document.getElementById('songTitle').value;
+        songs[currentIdx].content = document.getElementById('editor').innerHTML;
+        saveAll();
+        renderList();
+    }
+
+    function saveAll() { localStorage.setItem('mySongs', JSON.stringify(songs)); }
+
+    function exportAllSongs() {
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(new Blob([JSON.stringify(songs)], {type: 'application/json'}));
+        a.download = 'my-songs.json';
+        a.click();
+    }
+
+    function importAllSongs() {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.onchange = e => {
+            const reader = new FileReader();
+            reader.onload = r => { localStorage.setItem('mySongs', r.target.result); location.reload(); }
+            reader.readAsText(e.target.files[0]);
+        }
+        input.click();
+    }
+
+    function renderList() {
+        const list = document.getElementById('songList');
+        list.innerHTML = '';
+        songs.forEach((s, i) => {
+            const btn = document.createElement('button');
+            btn.className = 'song-btn';
+            btn.innerText = s.title;
+            btn.onclick = () => {
+                currentIdx = i;
+                document.getElementById('songTitle').value = s.title;
+                document.getElementById('editor').innerHTML = s.content;
+            };
+            list.appendChild(btn);
+        });
+    }
+
+    function addChord() {
+        const sel = window.getSelection();
+        if (sel.isCollapsed) return alert("סמן הברה!");
+        const chord = prompt("אקורד:");
+        if (!chord) return;
+        const html = `<span class="word-box" contenteditable="false"><span class="chord">${chord}</span><span class="lyric">${sel.toString()}</span></span>`;
+        document.execCommand('insertHTML', false, html);
+    }
+
+    renderList();
+</script>
+</body>
+</html>
