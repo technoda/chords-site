@@ -35,7 +35,7 @@
         <button onclick="generateLink()" style="background:skyblue;">🔗 קישור לשיתוף</button>
         <label>גודל:</label>
         <input type="range" min="14" max="40" value="18" oninput="changeFontSize(this.value)">
-        <button onclick="exportToExcel()" style="background:darkgreen; color:white;">📊 ייצא לאקסל צבעוני</button>
+        <button onclick="exportToExcel()" style="background:darkgreen; color:white;">📊 ייצא לאקסל (2 טורים)</button>
         <button onclick="saveCurrentSong()" style="background:green; color:white;">שמור שיר</button>
     </div>
     <div id="editor" contenteditable="true" ondblclick="handleDblClick(event)"></div>
@@ -79,46 +79,40 @@
         prompt("העתק את הקישור לשיתוף:", window.location.origin + window.location.pathname + '?data=' + encoded);
     }
 
-    // --- הפונקציה החדשה לצביעת תאים באקסל ---
+    // --- אלגוריתם הפיצול ל-2 טורים באקסל ---
     function exportToExcel() {
         const editor = document.getElementById('editor');
-        const rows = [];
+        const blocks = [];
         let chordRow = [];
         let lyricRow = [];
         let hasChords = false;
         let currentPlainText = "";
 
-        // פונקציה ליצירת תא עם צבע
         const generateStyledCell = (value, colorHex) => {
-            return {
-                v: value,
-                t: 's', // סוג: טקסט
-                s: {
-                    font: {
-                        color: { rgb: colorHex }
-                    }
-                }
-            };
+            return { v: value, t: 's', s: { font: { color: { rgb: colorHex } } } };
         };
 
         const flushText = () => {
             if (currentPlainText !== "") {
                 chordRow.push(""); 
-                lyricRow.push(generateStyledCell(currentPlainText, "000000")); // טקסט רגיל בשחור
+                lyricRow.push(generateStyledCell(currentPlainText, "000000"));
                 currentPlainText = "";
             }
         };
 
+        // אורז את השורות ל"בלוק" אחד של משפט (כדי לא לפצל אקורד מהמילה שלו)
         const flushLine = () => {
             flushText();
+            const currentBlock = [];
             if (lyricRow.length > 0 || chordRow.length > 0) {
                 if (hasChords) {
-                    rows.push(chordRow);
+                    currentBlock.push(chordRow);
                 }
-                rows.push(lyricRow);
+                currentBlock.push(lyricRow);
             } else {
-                rows.push([]); 
+                currentBlock.push([]); 
             }
+            blocks.push(currentBlock);
             chordRow = [];
             lyricRow = [];
             hasChords = false;
@@ -138,7 +132,6 @@
             } else if (n.nodeName === 'BR') {
                 flushLine(); 
             } else if (n.classList && n.classList.contains('word-box')) { 
-                // קוביית אקורד נמצאה
                 const chordNode = n.querySelector('.chord');
                 const lyricNode = n.querySelector('.lyric');
                 processChordLyricPair(chordNode.innerText, lyricNode.innerText);
@@ -158,14 +151,70 @@
             flushLine();
         }
 
+        // ניקוי רווחים מיותרים
+        const cleanBlocks = [];
+        for (let i = 0; i < blocks.length; i++) {
+            const isCurrentEmpty = blocks[i].length === 1 && blocks[i][0].length === 0;
+            const isPrevEmpty = i > 0 && cleanBlocks.length > 0 && 
+                                cleanBlocks[cleanBlocks.length-1].length === 1 && 
+                                cleanBlocks[cleanBlocks.length-1][0].length === 0;
+            if (isCurrentEmpty && isPrevEmpty) continue; 
+            if (i === 0 && isCurrentEmpty) continue; 
+            cleanBlocks.push(blocks[i]);
+        }
+
+        // חיפוש חכם של האמצע (עדיפות לשבירה על שורת רווח בין בתים)
+        let splitIdx = Math.ceil(cleanBlocks.length / 2);
+        for (let offset = 0; offset < 5; offset++) {
+            if (splitIdx + offset < cleanBlocks.length && cleanBlocks[splitIdx + offset].length === 1 && cleanBlocks[splitIdx + offset][0].length === 0) {
+                splitIdx = splitIdx + offset + 1; break;
+            }
+            if (splitIdx - offset > 0 && cleanBlocks[splitIdx - offset].length === 1 && cleanBlocks[splitIdx - offset][0].length === 0) {
+                splitIdx = splitIdx - offset + 1; break;
+            }
+        }
+
+        // חלוקת השיר לחצי ראשון וחצי שני
+        const firstHalfBlocks = cleanBlocks.slice(0, splitIdx);
+        const secondHalfBlocks = cleanBlocks.slice(splitIdx);
+
+        // פריסה לשורות רגילות
+        const col1Rows = []; // טור ימני באקסל
+        firstHalfBlocks.forEach(b => b.forEach(r => col1Rows.push(r)));
+        
+        const col2Rows = []; // טור שמאלי באקסל
+        secondHalfBlocks.forEach(b => b.forEach(r => col2Rows.push(r)));
+
+        // מציאת הרוחב של הטור הראשון כדי לדעת איפה להתחיל את השני
+        let maxCols = 0;
+        col1Rows.forEach(r => { if(r.length > maxCols) maxCols = r.length; });
+        const secondColStart = maxCols + 2; // רווח של שתי עמודות בין הטורים
+
+        const maxRowsCount = Math.max(col1Rows.length, col2Rows.length);
         const finalRows = [];
-        for (let i = 0; i < rows.length; i++) {
-            if (rows[i].length === 0 && i > 0 && rows[i - 1].length === 0) continue;
-            finalRows.push(rows[i]);
+        
+        // הדבקה של שני הטורים זה לצד זה
+        for (let i = 0; i < maxRowsCount; i++) {
+            const newRow = new Array(secondColStart).fill("");
+            
+            // מילוי החצי הראשון (ימין)
+            if (col1Rows[i]) {
+                for (let j = 0; j < col1Rows[i].length; j++) {
+                    newRow[j] = col1Rows[i][j];
+                }
+            }
+            
+            // מילוי החצי השני (שמאל)
+            if (col2Rows[i]) {
+                for (let j = 0; j < col2Rows[i].length; j++) {
+                    newRow[secondColStart + j] = col2Rows[i][j];
+                }
+            }
+            finalRows.push(newRow);
         }
 
         const ws = XLSX.utils.aoa_to_sheet(finalRows);
-        ws['!views'] = [{ rightToLeft: true }]; // תצוגה מימין לשמאל
+        ws['!views'] = [{ rightToLeft: true }]; 
 
         const wb = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(wb, ws, "שיר");
